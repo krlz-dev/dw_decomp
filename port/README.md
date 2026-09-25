@@ -1,15 +1,16 @@
 # Port spike — is a modern port of Digimon World realistic?
 
-Three experiments, all passing. Together they cover the things that decide
+Four experiments, all passing. Together they cover the things that decide
 whether a port is worth starting.
 
 ```bash
 ./port/build.sh           # 1. game logic on x86
 ./port/build_triangle.sh  # 2. PS1 primitives through SDL2
 ./port/build_gte.sh       # 3. the geometry coprocessor, measured
+./port/build_scene.sh     # 4. all three as one pipeline
 ```
 
-Only #2 needs SDL2. None need a PlayStation toolchain or a disc image.
+Only #2 and #4 need SDL2. None need a PlayStation toolchain or a disc image.
 
 ---
 
@@ -89,6 +90,37 @@ GTE uses lookup tables, and matching hardware exactly requires those tables.
 
 That distinction matters: this is a *port* technique, not a *decomp* technique.
 
+## 4. The full pipeline, with real occlusion
+
+![scene](scene-result.png)
+
+The ordering table was the last missing link. Measured first, as always:
+
+```
+GsGetWorkBase 177 · AddPrim 173 · GsSetWorkBase 168 · DrawSync 134
+GsSortSprite   45 · GsSortObject4 42 · GsClearOt 32 · GsDrawOt 10
+```
+
+Every declaration is `GsOT NAME[2]` — the game is double-buffered, with
+`ACTIVE_FRAMEBUFFER` selecting the bank. `GsClearOt` is called with depths up
+to `0xfff`, so the table holds 4096 buckets.
+
+**An OT is not a sorting algorithm.** It is a bucket array: one slot per depth,
+each holding a linked list, with `AddPrim` pushing to the front. O(1) insertion,
+zero comparisons — how a 33MHz console depth-sorted a scene every frame.
+Replacing it with `qsort` would be slower *and* wrong, because primitives at
+equal depth must keep their submission order.
+
+The test proves ordering rather than luck: the NEAR quad is submitted FIRST,
+and still wins. Then the depths are swapped and the result inverts —
+
+```
+normal:           centre r=16  g=104     <- near (green) occludes
+depths swapped:   centre r=120 g=16      <- far (red) now occludes
+```
+
+Same submission order, opposite result. The table is doing the work.
+
 ---
 
 ## The architecture this forced
@@ -127,8 +159,9 @@ port/include/       portable stand-ins for libgte / libgpu / libgs / libcd
 port/harness.c      the 18 externals evolution.c needs
 port/gpu_sdl.c      software rasteriser: textured tris/quads, CLUT, tinting
 port/gte.c          software GTE: the 11 operations covering 80% of uses
+port/ot.c           the ordering table: depth buckets, front-push, far-to-near
 port/prim_glue.c    the type fence
-port/run_*.c        the three experiments
+port/run_*.c        the four experiments
 ```
 
 `static_assert`s pin every struct size. If a stub drifts from the PS1 layout the
@@ -139,8 +172,8 @@ build fails, instead of silently misreading every data table.
 - **One logic file out of 126**, chosen because it was the best case.
 - **GTE is approximate, not exact.** 18 of 29 operations are unimplemented
   (the tail 20%), and the trig is polynomial rather than table-driven.
-- **No ordering table.** Primitives draw immediately; the PS1 depth-sorts via
-  `GsSortObject` / `GsDrawOt`.
+- **No `GsSortObject4`.** The OT works, but nothing yet walks a TMD model and
+  emits its primitives — that is the next real gap.
 - **No semi-transparency, no Gouraud, no indexed CLUT textures.**
 - **Nothing validated against the retail binary** — that needs the MIPS
   toolchain and a disc image.
