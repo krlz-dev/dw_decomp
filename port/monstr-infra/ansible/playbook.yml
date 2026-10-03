@@ -1,0 +1,50 @@
+---
+# MONSTR agent/build machine configuration.
+#
+# Run this AFTER `tofu apply` and after finishing the two manual steps in
+# /root/FIRST-RUN.md on the server.
+#
+# Unlike cloud-init, this is re-runnable. Anything that needs iteration belongs
+# here, not in the bootstrap.
+
+- name: Configure MONSTR agent/build machine
+  hosts: monstr_agents
+  become: true
+
+  vars:
+    workspace: /mnt/workspace
+    dotnet_channel: "8.0"
+    # Unity is NOT installed by default. See the licence note in
+    # ../README.md: running the Editor here while you work locally may be two
+    # concurrent instances on one seat. Set this to true only once that is
+    # settled with Unity.
+    install_unity: false
+
+  pre_tasks:
+    - name: Fail early if the workspace volume is not mounted
+      ansible.builtin.command: findmnt --target {{ workspace }}
+      changed_when: false
+      # The mount unit uses nofail, so the machine boots without it. Building
+      # into the boot disk instead would fill root and take the machine down,
+      # so this check is deliberate rather than defensive noise.
+
+  roles:
+    - role: base
+      tags: [base]
+    - role: dotnet
+      tags: [dotnet]
+    - role: agents
+      tags: [agents]
+    - role: blender
+      tags: [blender]
+    - role: unity
+      tags: [unity]
+      when: install_unity | bool
+
+  post_tasks:
+    - name: Report what is present
+      ansible.builtin.debug:
+        msg:
+          - "workspace: {{ workspace }}"
+          - "unity installed: {{ install_unity }}"
+          - "next: create git worktrees under {{ workspace }}/agents/"

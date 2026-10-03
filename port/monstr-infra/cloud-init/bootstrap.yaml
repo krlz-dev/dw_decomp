@@ -1,0 +1,118 @@
+#cloud-config
+# Bootstrap for the MONSTR agent/build machine.
+#
+# Scope is deliberately narrow: this makes a brand-new Hetzner box safe,
+# mounted and ready for Ansible. It does NOT install Unity, .NET, Blender or
+# agent CLIs, because cloud-init runs once and is hard to iterate on. That is
+# Ansible's job, and Ansible is re-runnable.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  # the minimum to let Ansible take over
+  - python3
+  - python3-apt
+  - git
+  - curl
+  - ca-certificates
+  # Unity's Linux Editor needs these, and finding out later via a cryptic
+  # launch failure wastes an afternoon
+  - libgtk-3-0
+  - libnss3
+  - libasound2t64
+  - libgbm1
+  # headless rendering path, measured as OpenGL 4.5 via llvmpipe
+  - xvfb
+  - mesa-utils
+  - libgl1-mesa-dri
+  # build hygiene
+  - build-essential
+  - unzip
+  # observability, so a stalled build is diagnosable
+  - htop
+  - iotop
+  - sysstat
+
+write_files:
+  # Mount the workspace volume. Unity's Library cache and build output are
+  # churn-heavy and large; keeping them off the boot disk means a runaway build
+  # cannot fill root and take the machine down.
+  - path: /etc/systemd/system/mnt-workspace.mount
+    content: |
+      [Unit]
+      Description=MONSTR workspace volume
+      After=local-fs.target
+
+      [Mount]
+      # Hetzner exposes volumes by stable ID under /dev/disk/by-id/.
+      What=/dev/disk/by-id/scsi-0HC_Volume_PLACEHOLDER
+      Where=/mnt/workspace
+      Type=ext4
+      # nofail: if the volume is absent the machine still boots, so it stays
+      # reachable for repair instead of dropping to emergency mode.
+      Options=discard,nofail,noatime
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/sysctl.d/99-monstr.conf
+    content: |
+      # Unity's asset importer and the C# compiler open a lot of files, and
+      # several agents working in parallel multiply that.
+      fs.inotify.max_user_watches=524288
+      fs.inotify.max_user_instances=512
+      fs.file-max=2097152
+
+  - path: /root/FIRST-RUN.md
+    content: |
+      # MONSTR agent machine, first run
+
+      cloud-init has installed base packages and prepared the mount unit.
+      Two things still need doing by hand, on purpose:
+
+      1. Finish the workspace mount. Find the real device ID and fix the unit:
+
+           ls -l /dev/disk/by-id/ | grep HC_Volume
+           sed -i "s|scsi-0HC_Volume_PLACEHOLDER|<real-id>|" \
+             /etc/systemd/system/mnt-workspace.mount
+           systemctl daemon-reload
+           systemctl enable --now mnt-workspace.mount
+           findmnt /mnt/workspace
+
+         The placeholder is intentional: the volume ID is only known after
+         attachment, and guessing it produces a boot that silently has no
+         workspace.
+
+      2. Run Ansible from your laptop, which installs Unity, .NET, Blender and
+         the agent tooling:
+
+           cd infra/ansible && ansible-playbook -i inventory.ini playbook.yml
+
+      ## Before installing Unity, settle the licence
+
+      Unity's Software ToS section 2.8 allows the Editor on a primary AND a
+      secondary machine, but "only one instance at any given time per seat".
+      An agent driving the Editor here while you work locally is two concurrent
+      instances. Confirm with Unity whether that needs floating licences or a
+      Build Server subscription. This is a terms question, not a technical one.
+
+runcmd:
+  - [ sysctl, --system ]
+  - [ systemctl, enable, --now, sysstat ]
+  # Swap sized for build spikes. Unity linking and asset import can briefly
+  # exceed RAM; an OOM kill mid-build is worse than a slow build.
+  - [ fallocate, -l, 8G, /swapfile ]
+  - [ chmod, "600", /swapfile ]
+  - [ mkswap, /swapfile ]
+  - [ swapon, /swapfile ]
+  - [ sh, -c, "echo '/swapfile none swap sw 0 0' >> /etc/fstab" ]
+  # Harden SSH: keys only. Hetzner images permit password auth by default.
+  - [ sh, -c, "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config" ]
+  - [ sh, -c, "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config" ]
+  - [ systemctl, restart, ssh ]
+
+final_message: |
+  MONSTR agent machine ready after $UPTIME seconds.
+  Read /root/FIRST-RUN.md: the workspace volume needs its device ID, and the
+  Unity licence question needs answering before installing the Editor.

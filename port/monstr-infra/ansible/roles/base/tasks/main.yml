@@ -1,0 +1,32 @@
+---
+- name: Install build and diagnostic tooling
+  ansible.builtin.apt:
+    name:
+      - git
+      - git-lfs          # Unity projects carry binary assets
+      - build-essential
+      - jq
+      - ripgrep
+      - tmux             # long agent sessions survive a dropped SSH
+      - htop
+      - iotop
+      - sysstat
+      - xvfb             # headless rendering, measured as OpenGL 4.5 (llvmpipe)
+      - mesa-utils
+    state: present
+    update_cache: true
+
+- name: Initialise git-lfs
+  ansible.builtin.command: git lfs install --system
+  changed_when: false
+
+- name: Set global git identity for agent commits
+  community.general.git_config:
+    name: "{{ item.name }}"
+    scope: system
+    value: "{{ item.value }}"
+  loop:
+    - { name: "user.name",  value: "krlz-dev" }
+    - { name: "user.email", value: "krlz-dev@users.noreply.github.com" }
+    # Agent commits must not carry co-author trailers.
+    - { name: "commit.gpgsign", value: "false" }

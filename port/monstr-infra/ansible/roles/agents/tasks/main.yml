@@ -1,0 +1,65 @@
+---
+# Git worktrees, one per agent, so parallel agents do not fight over the same
+# Unity scene or asset database. Each works a branch, tests it, submits changes.
+#
+#   /mnt/workspace/monstr          main checkout
+#   /mnt/workspace/agents/combat   worktree on agents/combat
+#   /mnt/workspace/agents/world    worktree on agents/world
+#   /mnt/workspace/agents/ui       worktree on agents/ui
+#   /mnt/workspace/agents/tests    worktree on agents/tests
+
+- name: Create agent worktree root
+  ansible.builtin.file:
+    path: "{{ workspace }}/agents"
+    state: directory
+    mode: "0755"
+
+- name: Create build output directory
+  ansible.builtin.file:
+    path: "{{ workspace }}/builds"
+    state: directory
+    mode: "0755"
+
+- name: Create Unity cache directories on the workspace volume
+  ansible.builtin.file:
+    path: "{{ workspace }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - unity-cache     # shared asset import cache
+    - unity-logs      # Editor and build logs, read by agents on failure
+    - artifacts       # test results, coverage, screenshots
+
+- name: Install Node.js (several MCP servers ship as npm packages)
+  ansible.builtin.apt:
+    name:
+      - nodejs
+      - npm
+    state: present
+    update_cache: true
+
+- name: Note the MCP tunnel requirement
+  ansible.builtin.copy:
+    dest: "{{ workspace }}/MCP-ACCESS.md"
+    mode: "0644"
+    content: |
+      # Reaching Unity MCP on this machine
+
+      The MCP port is NOT exposed in the Hetzner firewall, on purpose: it is an
+      unauthenticated control channel into the Unity Editor.
+
+      Tunnel it from your laptop:
+
+          ssh -N -L 8090:127.0.0.1:8090 root@<server-ip>
+
+      Then point the local MCP client at 127.0.0.1:8090.
+
+      ## Mature MCP servers, by stars at time of writing
+
+          14669  CoplayDev/unity-mcp
+           4383  IvanMurzak/Unity-MCP
+           1917  CoderGamester/mcp-unity
+
+      All of them bridge to a RUNNING Editor. That is the workload with the
+      licence question attached, and it is separate from headless
+      `-batchmode -nographics` builds, which need no GPU and no live Editor.

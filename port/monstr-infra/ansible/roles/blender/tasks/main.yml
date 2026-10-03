@@ -1,0 +1,18 @@
+---
+# Blender headless, for asset processing scripted via `blender -b -P script.py`.
+# Per the design plan's asset production section: shared skeleton families, so
+# batch operations across monsters are worth automating.
+- name: Install Blender
+  ansible.builtin.apt:
+    name: blender
+    state: present
+    update_cache: true
+
+- name: Verify Blender runs headless
+  ansible.builtin.command: blender -b --version
+  changed_when: false
+  register: blender_version
+
+- name: Report Blender version
+  ansible.builtin.debug:
+    var: blender_version.stdout_lines[0]

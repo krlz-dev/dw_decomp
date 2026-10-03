@@ -1,0 +1,21 @@
+---
+# Unity 6 ships Mono/IL2CPP internally, but the .NET SDK is needed for
+# standalone C# tests and tooling that runs WITHOUT the Editor. That is the
+# whole point: the vertical-slice progression tests should not need Unity.
+- name: Install .NET SDK via the official script
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -sSL https://dot.net/v1/dotnet-install.sh | \
+      bash -s -- --channel {{ dotnet_channel }} --install-dir /opt/dotnet --no-path
+  args:
+    executable: /bin/bash
+    creates: /opt/dotnet/dotnet
+
+- name: Put dotnet on PATH for all users
+  ansible.builtin.copy:
+    dest: /etc/profile.d/dotnet.sh
+    mode: "0644"
+    content: |
+      export DOTNET_ROOT=/opt/dotnet
+      export PATH="$PATH:/opt/dotnet"
+      export DOTNET_CLI_TELEMETRY_OPTOUT=1

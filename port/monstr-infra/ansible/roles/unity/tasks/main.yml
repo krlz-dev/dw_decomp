@@ -1,0 +1,43 @@
+---
+# NOT RUN BY DEFAULT. Gated behind install_unity in the playbook.
+#
+# Settle the licence first. Unity's Software ToS section 2.8 permits the Editor
+# on a primary AND secondary machine but "only one instance at any given time
+# per seat". An agent driving the Editor here while you work locally is two
+# concurrent instances. Section 2.5 requires a separate Build Server
+# subscription for build-server use.
+#
+# This role is deliberately a stub rather than a guess: the correct install
+# path depends on whether the answer is a personal seat, floating licences, or
+# a Build Server subscription, and those activate differently.
+
+- name: Refuse to proceed without an explicit licence decision
+  ansible.builtin.assert:
+    that:
+      - unity_licence_confirmed | default(false) | bool
+    fail_msg: |
+      Unity installation is blocked until the licence question is settled.
+
+      Set unity_licence_confirmed=true only after confirming with Unity which
+      of these applies:
+        - a single seat used one machine at a time
+        - floating licences for concurrent use
+        - a Unity Build Server subscription
+
+      See ../README.md for the relevant ToS quotes.
+
+- name: Install Unity Editor dependencies
+  ansible.builtin.apt:
+    name:
+      - libgtk-3-0
+      - libnss3
+      - libasound2t64
+      - libgbm1
+      - libxss1
+      - libgconf-2-4
+    state: present
+    update_cache: true
+
+# Editor install itself is left to be filled in once the licence model is
+# known. Unity Hub on a headless box activates differently per model, and
+# writing an install path for the wrong one wastes a day.

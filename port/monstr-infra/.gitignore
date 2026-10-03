@@ -1,0 +1,24 @@
+# OpenTofu / Terraform
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Never commit variable files: admin_ipv4 is your home address, and a .tfvars
+# is where a token eventually gets pasted by accident.
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+
+# Ansible
+*.retry
+ansible/inventory.ini.local
+
+# Plan output can contain resource detail worth keeping private
+*.tfplan
+plan.out
