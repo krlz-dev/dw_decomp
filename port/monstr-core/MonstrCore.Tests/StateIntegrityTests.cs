@@ -17,9 +17,9 @@ namespace MonstrCore.Tests
             var s = new GameState();
             // The realistic failure: a typo in a world-graph data file.
             var ex = Assert.Throws<UnknownStateKeyException>(
-                () => s.GetFlag("Creature.Mosu.Recruited"));
+                () => s.GetFlag("Creature.Mosu.Befriended"));
 
-            Assert.Contains("Creature.Mossu.Recruited", ex.Message);
+            Assert.Contains("Creature.Mossu.Befriended", ex.Message);
         }
 
         [Fact]
@@ -58,13 +58,13 @@ namespace MonstrCore.Tests
             var s = new GameState();
             var bad = new GuardedEvent("broken",
                 new AllOf(),
-                new SetFlag(StateKeys.MossuRecruited),
+                new SetFlag(StateKeys.MossuBefriended),
                 new AddCounter(StateKeys.ProsperityPoints, 1),
                 new SetCounter("Settlement.Does.Not.Exist", 1));   // throws here
 
             Assert.Throws<EventExecutionException>(() => bad.TryFire(s));
 
-            Assert.False(s.GetFlag(StateKeys.MossuRecruited));
+            Assert.False(s.Creatures.Mossu.Befriended);
             Assert.Equal(0, s.GetCounter(StateKeys.ProsperityPoints));
         }
 
@@ -102,8 +102,8 @@ namespace MonstrCore.Tests
         {
             var a = new GameState();
             var b = new GameState();
-            new SetFlag(StateKeys.MossuRecruited).Execute(a);
-            new SetFlag(StateKeys.MossuRecruited).Execute(b);
+            new SetFlag(StateKeys.MossuBefriended).Execute(a);
+            new SetFlag(StateKeys.MossuBefriended).Execute(b);
 
             // Needed for `diff` to be a useful debugging tool and for agents to
             // assert on save content.
@@ -172,13 +172,13 @@ namespace MonstrCore.Tests
         {
             var s = new GameState();
             var gate = new AllOf(
-                new FlagSet(StateKeys.MossuRecruited),
+                new FlagSet(StateKeys.MossuBefriended),
                 new CounterThreshold(StateKeys.ProsperityPoints, 3));
 
             var failing = gate.FailingParts(s).ToList();
             Assert.Equal(2, failing.Count);
 
-            s.SetFlag(StateKeys.MossuRecruited, true);
+            s.SetFlag(StateKeys.MossuBefriended, true);
             Assert.Single(gate.FailingParts(s));
         }
     }

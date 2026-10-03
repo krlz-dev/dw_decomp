@@ -6,11 +6,13 @@ namespace MonstrCore
     /// The vertical slice from the region blueprint section 19, expressed as
     /// data: Town -> Forest Entrance -> Riverside -> Overgrown Ruins -> Mossu.
     ///
-    /// Note the shape of the recruitment: Defeated and Recruited are separate
-    /// events with separate gates. The roster document's core rule is that
-    /// winning a fight does not mean the monster joins; Mossu decides after a
-    /// conversation. Modelling that as one step would quietly delete the pillar
-    /// the whole game is built on.
+    /// The recruitment is deliberately FOUR events, not one. The constitution
+    /// requires Defeated != Befriended != LivesInTown, and the spike handoff
+    /// section 16 allows them to happen close together in the slice while
+    /// insisting they stay conceptually distinct. Modelling them as one step
+    /// would make the architecture unable to express a monster who is
+    /// befriended but lives elsewhere, which the roster already contains
+    /// (Kiba stays in the canyon; Tsuki only visits).
     /// </summary>
     public static class MossuSlice
     {
@@ -47,8 +49,10 @@ namespace MonstrCore
             g.Add(new Area(OvergrownRuins, "Overgrown Ruins")
                 .Exit(Riverside)
                 .Exit(DeepGrove,
-                    // Mossu has to actually join, not merely lose.
-                    new FlagSet(StateKeys.MossuRecruited)));
+                    // Mossu has to actually choose to help, not merely lose.
+                    // Gating on Befriended rather than Defeated is the whole
+                    // point of keeping the two apart.
+                    new FlagSet(StateKeys.MossuBefriended)));
 
             g.Add(new Area(DeepGrove, "Deep Grove")
                 .Exit(OvergrownRuins));
@@ -59,6 +63,14 @@ namespace MonstrCore
             return g;
         }
 
+        // Event ids, so Unity adapters and tests refer to the same strings.
+        public const string EvDiscoverDamage = "forest.discover_damage";
+        public const string EvFindMechanism  = "forest.find_greenhouse_mechanism";
+        public const string EvDefeatMossu    = "mossu.defeat";
+        public const string EvBefriendMossu  = "mossu.befriend";
+        public const string EvInviteMossu    = "mossu.invite";
+        public const string EvMossuMovesIn   = "mossu.moves_in";
+
         /// <summary>
         /// The slice's events, in the order a player would trigger them. Each
         /// one is gated, so an out-of-order attempt reports what is missing
@@ -67,37 +79,66 @@ namespace MonstrCore
         public static IReadOnlyList<GuardedEvent> BuildEvents() => new[]
         {
             // 1. Discovery: the forest is sick.
-            new GuardedEvent("forest.discover_damage",
+            new GuardedEvent(EvDiscoverDamage,
                 new AllOf(),  // always available on arrival
                 new SetFlag(StateKeys.ForestVegetationDamageFound)),
 
             // 2. Follow it to the greenhouse mechanism Mossu is guarding.
-            new GuardedEvent("forest.find_greenhouse_mechanism",
+            //    This is what makes the fight understandable before it starts,
+            //    per handoff section 12.
+            new GuardedEvent(EvFindMechanism,
                 new FlagSet(StateKeys.ForestVegetationDamageFound),
                 new SetFlag(StateKeys.ForestGreenhouseMechFound)),
 
-            // 3. The fight. Kiro's battle count goes up whatever the outcome.
-            new GuardedEvent("mossu.defeat",
+            // 3. The fight. Kiro's battle count rises; nothing else changes.
+            //    Handoff section 15: combat ending must not become joining.
+            new GuardedEvent(EvDefeatMossu,
                 new AllOf(
                     new FlagSet(StateKeys.ForestGreenhouseMechFound),
                     new FlagSet(StateKeys.MossuDefeated, false)),
                 new SetFlag(StateKeys.MossuDefeated),
                 new AddCounter(StateKeys.KiroBattles, 1)),
 
-            // 4. The negotiation. Separate from the fight on purpose: Rui offers
-            //    to restore the settlement greenhouse, and Mossu chooses.
-            new GuardedEvent("mossu.recruit",
+            // 4. The negotiation. Rui asks about the forest and offers to
+            //    restore the settlement greenhouse; Mossu decides. Winning the
+            //    fight only earned the conversation.
+            new GuardedEvent(EvBefriendMossu,
                 new AllOf(
                     new FlagSet(StateKeys.MossuDefeated),
-                    new FlagSet(StateKeys.MossuRecruited, false)),
-                new SetFlag(StateKeys.MossuRecruited),
-                new SetFlag(StateKeys.MossuInTown),
+                    new FlagSet(StateKeys.MossuBefriended, false)),
+                new SetFlag(StateKeys.MossuBefriended),
+                new AddCounter(StateKeys.KiroHappiness, 10)),
+
+            // 5. The invitation. Separate because a friend who declines to
+            //    move is a state the roster needs (Kiba, Tsuki).
+            new GuardedEvent(EvInviteMossu,
+                new AllOf(
+                    new FlagSet(StateKeys.MossuBefriended),
+                    new FlagSet(StateKeys.MossuInvitedToTown, false)),
+                new SetFlag(StateKeys.MossuInvitedToTown)),
+
+            // 6. Mossu actually arrives, and the world changes. This is the
+            //    only event that touches the settlement: handoff section 17
+            //    insists the town is the progression interface.
+            new GuardedEvent(EvMossuMovesIn,
+                new AllOf(
+                    new FlagSet(StateKeys.MossuInvitedToTown),
+                    new FlagSet(StateKeys.MossuLivesInTown, false)),
+                new SetFlag(StateKeys.MossuLivesInTown),
                 new SetFlag(StateKeys.GreenhouseUnlocked),
                 new SetCounter(StateKeys.GreenhouseLevel, 1),
                 // Prosperity is the single derived value driving town stage,
                 // borrowed from DW1's PSTAT_PROSPERITY_POINTS.
-                new AddCounter(StateKeys.ProsperityPoints, 1),
-                new AddCounter(StateKeys.KiroHappiness, 10)),
+                new AddCounter(StateKeys.ProsperityPoints, 1)),
+        };
+
+        /// <summary>
+        /// The happy path, for adapters and tests that just need the sequence.
+        /// </summary>
+        public static readonly string[] HappyPath =
+        {
+            EvDiscoverDamage, EvFindMechanism, EvDefeatMossu,
+            EvBefriendMossu, EvInviteMossu, EvMossuMovesIn,
         };
     }
 }

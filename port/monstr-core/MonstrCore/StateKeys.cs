@@ -13,17 +13,31 @@ namespace MonstrCore
     public static class StateKeys
     {
         // ---- creatures -------------------------------------------------------
-        // Two separate flags per monster on purpose. The roster document is
-        // explicit that winning a fight does NOT mean recruitment: the monster
-        // decides afterwards. Collapsing these into one flag would quietly
-        // delete that design pillar.
-        public const string MossuDefeated  = "Creature.Mossu.Defeated";
-        public const string MossuRecruited = "Creature.Mossu.Recruited";
-        public const string MossuInTown    = "Creature.Mossu.LivesInTown";
+        //
+        // FOUR distinct facts per monster, not one. The constitution is explicit:
+        //
+        //     Defeated != Befriended != LivesInTown
+        //
+        // Winning a fight creates an opportunity to communicate. It does not
+        // transfer ownership. A monster can be defeated and not befriended,
+        // befriended and living elsewhere, befriended and visiting, or
+        // befriended and resident. Collapsing any of these into one flag would
+        // delete the design pillar the whole game rests on, and would quietly
+        // make "Recruited" mean "captured".
+        //
+        // The previous key name was Creature.Mossu.Recruited. "Recruited"
+        // carries the collection-game assumption this project rejects, so the
+        // vocabulary changed with the model.
 
-        public const string EmberuDefeated  = "Creature.Emberu.Defeated";
-        public const string EmberuRecruited = "Creature.Emberu.Recruited";
-        public const string EmberuInTown    = "Creature.Emberu.LivesInTown";
+        public const string MossuDefeated       = "Creature.Mossu.Defeated";
+        public const string MossuBefriended     = "Creature.Mossu.Befriended";
+        public const string MossuInvitedToTown  = "Creature.Mossu.InvitedToTown";
+        public const string MossuLivesInTown    = "Creature.Mossu.LivesInTown";
+
+        public const string EmberuDefeated      = "Creature.Emberu.Defeated";
+        public const string EmberuBefriended    = "Creature.Emberu.Befriended";
+        public const string EmberuInvitedToTown = "Creature.Emberu.InvitedToTown";
+        public const string EmberuLivesInTown   = "Creature.Emberu.LivesInTown";
 
         // ---- world -----------------------------------------------------------
         public const string ForestVegetationDamageFound = "World.Forest.VegetationDamageFound";
@@ -45,31 +59,31 @@ namespace MonstrCore
         public const string ProsperityPoints = "Settlement.ProsperityPoints";
 
         // ---- story -----------------------------------------------------------
-        public const string MainChapter          = "Story.MainChapter";
-        public const string DormantNetworkSeen   = "Story.DormantNetworkDiscovered";
+        public const string MainChapter        = "Story.MainChapter";
+        public const string DormantNetworkSeen = "Story.DormantNetworkDiscovered";
 
         // ---- partner ---------------------------------------------------------
         // Minimum viable partner simulation. The DW1 measurement found 65 fields
         // in PartnerPara; that is the shipped game, not a vertical slice. These
-        // thirteen are the subset that actually feeds evolution decisions.
-        public const string KiroHunger      = "Partner.Kiro.Hunger";
-        public const string KiroTiredness   = "Partner.Kiro.Tiredness";
-        public const string KiroHappiness   = "Partner.Kiro.Happiness";
-        public const string KiroDiscipline  = "Partner.Kiro.Discipline";
-        public const string KiroCareMistakes= "Partner.Kiro.CareMistakes";
-        public const string KiroWeight      = "Partner.Kiro.Weight";
-        public const string KiroBattles     = "Partner.Kiro.Battles";
-        public const string KiroStage       = "Partner.Kiro.Stage";
-        public const string KiroTrainHp     = "Partner.Kiro.Train.Hp";
-        public const string KiroTrainOff    = "Partner.Kiro.Train.Offense";
-        public const string KiroTrainDef    = "Partner.Kiro.Train.Defense";
-        public const string KiroTrainSpeed  = "Partner.Kiro.Train.Speed";
-        public const string KiroTrainBrain  = "Partner.Kiro.Train.Brain";
+        // thirteen are the subset that actually feeds a gameplay decision.
+        public const string KiroHunger       = "Partner.Kiro.Hunger";
+        public const string KiroTiredness    = "Partner.Kiro.Tiredness";
+        public const string KiroHappiness    = "Partner.Kiro.Happiness";
+        public const string KiroDiscipline   = "Partner.Kiro.Discipline";
+        public const string KiroCareMistakes = "Partner.Kiro.CareMistakes";
+        public const string KiroWeight       = "Partner.Kiro.Weight";
+        public const string KiroBattles      = "Partner.Kiro.Battles";
+        public const string KiroStage        = "Partner.Kiro.Stage";
+        public const string KiroTrainHp      = "Partner.Kiro.Train.Hp";
+        public const string KiroTrainOff     = "Partner.Kiro.Train.Offense";
+        public const string KiroTrainDef     = "Partner.Kiro.Train.Defense";
+        public const string KiroTrainSpeed   = "Partner.Kiro.Train.Speed";
+        public const string KiroTrainBrain   = "Partner.Kiro.Train.Brain";
 
         public static readonly IReadOnlyCollection<string> AllFlags = new[]
         {
-            MossuDefeated, MossuRecruited, MossuInTown,
-            EmberuDefeated, EmberuRecruited, EmberuInTown,
+            MossuDefeated, MossuBefriended, MossuInvitedToTown, MossuLivesInTown,
+            EmberuDefeated, EmberuBefriended, EmberuInvitedToTown, EmberuLivesInTown,
             ForestVegetationDamageFound, ForestGreenhouseMechFound,
             ForestDeepGroveCleared, CanyonBridgeRepaired,
             GreenhouseUnlocked,
@@ -86,76 +100,72 @@ namespace MonstrCore
         };
     }
 
-    // ---- typed façades over the flat store ----------------------------------
-    // These exist so gameplay code reads like the design document rather than
-    // like dictionary access, while the store underneath stays trivially
-    // serialisable.
-
-    public sealed class CreatureState
+    /// <summary>
+    /// The four relationship facts for one monster, grouped so gameplay code
+    /// cannot accidentally treat them as interchangeable.
+    ///
+    /// This is a read model over the flat store, not a second source of truth.
+    /// </summary>
+    public sealed class Relationship
     {
         private readonly GameState _s;
-        internal CreatureState(GameState s) => _s = s;
 
-        public bool IsDefeated(string flag) => _s.GetFlag(flag);
-        public bool IsRecruited(string flag) => _s.GetFlag(flag);
-        public void MarkDefeated(string flag) => _s.SetFlag(flag, true);
-        public void MarkRecruited(string flag) => _s.SetFlag(flag, true);
-    }
+        public string Name { get; }
+        public string DefeatedKey { get; }
+        public string BefriendedKey { get; }
+        public string InvitedKey { get; }
+        public string LivesInTownKey { get; }
 
-    public sealed class WorldState
-    {
-        private readonly GameState _s;
-        internal WorldState(GameState s) => _s = s;
+        internal Relationship(GameState s, string name,
+                              string defeated, string befriended,
+                              string invited, string livesInTown)
+        {
+            _s = s;
+            Name = name;
+            DefeatedKey = defeated;
+            BefriendedKey = befriended;
+            InvitedKey = invited;
+            LivesInTownKey = livesInTown;
+        }
 
-        public bool Is(string flag) => _s.GetFlag(flag);
-        public void Set(string flag) => _s.SetFlag(flag, true);
-    }
-
-    public sealed class SettlementState
-    {
-        private readonly GameState _s;
-        internal SettlementState(GameState s) => _s = s;
-
-        public int GreenhouseLevel => _s.GetCounter(StateKeys.GreenhouseLevel);
-        public int Prosperity => _s.GetCounter(StateKeys.ProsperityPoints);
-
-        public void SetGreenhouseLevel(int lvl) => _s.SetCounter(StateKeys.GreenhouseLevel, lvl);
-        public void AddProsperity(int n) =>
-            _s.SetCounter(StateKeys.ProsperityPoints, Prosperity + n);
+        public bool Defeated    => _s.GetFlag(DefeatedKey);
+        public bool Befriended  => _s.GetFlag(BefriendedKey);
+        public bool Invited     => _s.GetFlag(InvitedKey);
+        public bool LivesInTown => _s.GetFlag(LivesInTownKey);
 
         /// <summary>
-        /// Blueprint section 3 growth stages as thresholds on one value, rather
-        /// than a separate flag per stage.
+        /// The states the constitution says must stay reachable. Useful in tests
+        /// and in a debug panel, and it names the situation rather than making
+        /// the reader decode four booleans.
         /// </summary>
-        public SettlementStage Stage => Prosperity switch
+        public RelationshipStage Stage =>
+            LivesInTown ? RelationshipStage.Resident
+            : Invited    ? RelationshipStage.InvitedNotMoved
+            : Befriended ? RelationshipStage.FriendElsewhere
+            : Defeated   ? RelationshipStage.DefeatedNotFriend
+            : RelationshipStage.Stranger;
+
+        /// <summary>
+        /// Guards the one ordering that is a design rule rather than a
+        /// convenience: a monster cannot live in town without having been
+        /// invited, and cannot be invited without being a friend. Defeat is
+        /// NOT a prerequisite for friendship, deliberately: the roster has
+        /// monsters who could plausibly befriend Rui without a fight.
+        /// </summary>
+        public bool IsCoherent()
         {
-            < 3  => SettlementStage.Abandoned,
-            < 8  => SettlementStage.Camp,
-            < 13 => SettlementStage.Village,
-            < 19 => SettlementStage.Connected,
-            _    => SettlementStage.Living,
-        };
+            if (LivesInTown && !Invited) return false;
+            if (Invited && !Befriended) return false;
+            return true;
+        }
     }
 
-    public enum SettlementStage { Abandoned, Camp, Village, Connected, Living }
-
-    public sealed class StoryState
+    public enum RelationshipStage
     {
-        private readonly GameState _s;
-        internal StoryState(GameState s) => _s = s;
-
-        public int Chapter => _s.GetCounter(StateKeys.MainChapter);
-        public void SetChapter(int c) => _s.SetCounter(StateKeys.MainChapter, c);
-    }
-
-    public sealed class PartnerState
-    {
-        private readonly GameState _s;
-        internal PartnerState(GameState s) => _s = s;
-
-        public int Get(string key) => _s.GetCounter(key);
-        public void Set(string key, int v) => _s.SetCounter(key, v);
-        public void Add(string key, int delta) =>
-            _s.SetCounter(key, System.Math.Max(0, Get(key) + delta));
+        Stranger,
+        DefeatedNotFriend,
+        FriendElsewhere,
+        InvitedNotMoved,
+        Resident,
     }
 }
